@@ -1,0 +1,14 @@
+{
+  "name": "pwd",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "./node_modules/.bin/mocha --ui exports --reporter spec --slow 2000ms --bail ./test.ts"
+  },
+  "author": "Xinhai Zhou",
+  "license": "ISC",
+  "devDependencies": {
+    "mocha": "^5.2.0"
+  }
+}
