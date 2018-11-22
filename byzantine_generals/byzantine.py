@@ -20,13 +20,13 @@ def getOppositeCmd(cmd):
 class general(threading.Thread):
     # default generals in total is 7
     # default traitors are 2
-    N = 7
-    M = 2
+    n = 7
+    m = 2
 	   
     def __init__(self,iscommander,istraitor,id) :
         threading.Thread.__init__(self)
-        self.isCommander = iscommander
-        self.isTraitor = istraitor
+        self.commander = iscommander
+        self.traitor = istraitor
         self.ID = id
         self.messages = []
         self.message_waitlist = []
@@ -34,28 +34,30 @@ class general(threading.Thread):
     
     def run(self) :
         if mutex.acquire():
-            print "[general %d] %s" % (self.ID, 'commander: %s, traitor: %s' % (str(self.isCommander),str(self.isTraitor)))
+            print "[general %d] %s" % (self.ID, 'commander: %s, traitor: %s' % (str(self.commander),str(self.traitor)))
             mutex.release()
 
         time.sleep(0.2)
 
-        if self.isCommander :
+        if self.commander :
             self.send_command_to_general(":%s" % (inputCmd))
         else :
-            ''' msg_num = 1 + (n-2) + (n-2)(n-3) + ... '''
-            num = reduce(lambda x,y:x+y,[reduce(lambda x,y:x*y, i) for i in [[general.N-2-m1 for m1 in range(0,m+1)] for m in range(0,general.M)]])+1
+            # this num represents the total number of messages that this general should send+receive
+            diff_arr = [[general.n - 2 - j for j in range(0, i+1)] for i in range(0, general.m)]
+            product_arr = [reduce(lambda x,y: x*y, i) for i in diff_arr]
+            total_msg_num = reduce(lambda x,y: x+y, product_arr) + 1
 
-            while num > len(self.messages):
+            while total_msg_num > len(self.messages):
                 msg = self.receive()
                 self.messages.append(msg)
                 self.send_command_to_general(msg)
 
             for m in self.messages :
                 path, msg = m.split(':')
-                path, msg = (map(int,path.split('->')), msg)
+                path, msg = (map(int,path.split('==>>')), msg)
 
                 if len(path) == 1 :
-                    result = self.vote(path,msg,general.M)
+                    result = self.vote(path,msg,general.m)
                     break
             
             if mutex.acquire():
@@ -63,7 +65,7 @@ class general(threading.Thread):
                 mutex.release()
     
     def get_msg(self,path) :
-        path = "->".join(map(str,path))
+        path = "==>>".join(map(str,path))
         
         for message in self.messages:
             temp_path, msg = message.split(':')
@@ -71,10 +73,11 @@ class general(threading.Thread):
                 return msg
                             
     def vote(self,path,msg,m):
-            
-        generals = [ x for x in range(0,general.N) if x not in path and x != self.ID]
         
         results = [msg]
+
+        # the remaining generals
+        generals = [ x for x in range(0,general.n) if x not in path and x != self.ID]
 
         if m == 0:
             return self.get_msg(path)
@@ -87,8 +90,15 @@ class general(threading.Thread):
                 result = self.vote(tmp_path,msg,m-1)
                 results.append(result)
                     
-            if results.count(inputCmd) > len(results)/2 : return inputCmd
-            else : return getOppositeCmd(inputCmd)
+            # if the order is tie, then randomly select one from them
+            if results.count(inputCmd) > len(results)/2 : 
+                return inputCmd
+            elif results.count(inputCmd) == len(results)/2: 
+                if random.randint(0,1) == 0:
+                    return inputCmd
+                return getOppositeCmd(inputCmd)
+            else: 
+                return getOppositeCmd(inputCmd)
             
     def send_command_to_general(self,msg) :
         path,cmd = msg.split(":")
@@ -96,22 +106,22 @@ class general(threading.Thread):
         if path=='':
             path = [self.ID]
         else:
-            path = map(int,path.split('->'))
+            path = map(int,path.split('==>>'))
             path.append(self.ID)
         
-        if len(path) == general.M + 2 : return False
+        if len(path) == general.m + 2 : return False
 
         for g in generals :
             if g.ID not in path :
-                msg = '->'.join(map(str,path))
+                msg = '==>>'.join(map(str,path))
                 oppositeCmd = getOppositeCmd(inputCmd)
-                cmd = oppositeCmd if (self.isTraitor and g.ID % 2 == 0 and not self.isCommander) else inputCmd
+                cmd = oppositeCmd if (self.traitor and g.ID % 2 == 0 and not self.commander) else inputCmd
                 self.send(g,msg+':'+cmd)
         return True
     
     def send(self,g,msg):
         if mutex.acquire():
-            print "[general %d] %s" % (self.ID, 'Send to %d: ' % (g.ID) + msg)
+            print "[general %d] %s" % (self.ID, 'Send to %d, and the message is: ' % (g.ID) + msg)
             mutex.release()
         
         if g.mutex.acquire():
@@ -119,8 +129,8 @@ class general(threading.Thread):
             g.mutex.release()
                     
     def receive(self) :
-        msg = None
-        while msg is None:
+        msg = ''
+        while msg is '':
             if self.mutex.acquire():
                 if(len(self.message_waitlist) > 0):
                     msg = self.message_waitlist.pop(0)
@@ -136,29 +146,30 @@ if __name__ == '__main__':
         sys.exit(-1)
     
     for option, value in opts:
-        if option == "-n":
-            general.N = int(value)
         if option == "-m":
-            general.M = int(value)
+            general.m = int(value)
+        if option == "-n":
+            general.n = int(value)
         if option == "-o":
             orderKey = str(value)
 
     inputCmd = COMMAND[orderKey]
     
-    print 'N is %d; M is %d; Order is %s' % (general.N,general.M, inputCmd)
-    
-    commander = random.randint(0,general.N-1)
+    print 'N is %d; M is %d; Order is %s' % (general.n, general.m, inputCmd)
 
+    # initialized the number of traitors
     m = 0
 
-    for i in xrange(general.N) :
-        iscommander = True if commander == i else False
-        if m >= general.M :
+    for i in xrange(general.n) :
+        iscommander = True if 0 == i else False
+        if m >= general.m :
             istraitor = False
         else :
             istraitor = True if random.randint(0,1) == 0 else False
             if istraitor :
-                m +=1
+                m += 1
+            if i == general.n - 1 and m < general.m:
+                istraitor = True
         
         g = general(iscommander,istraitor,i)
         generals.append(g)
